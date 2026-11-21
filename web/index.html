@@ -16,10 +16,10 @@
 <span class="city">Ташкент, Узбекистан</span>
 </div></header>
 <main>
-<div class="intro"><h1>Маршрут и топливо</h1><p>Укажите точку назначения и узнайте, хватит ли топлива на поездку.</p></div>
+
 <div class="workspace">
 <aside class="panel">
-<h2>Параметры поездки</h2>
+<h1>Маршрут и топливо</h1>
 <form id="plan">
 <div class="stops">
 <label><span class="dot a">А</span>Откуда<select name="start"></select></label>
@@ -35,6 +35,7 @@
 </div>
 <button class="submit" type="submit">Обновить маршрут <span aria-hidden="true">↗</span></button>
 </form>
+<div id="choices" aria-label="Варианты маршрута"></div>
 <div id="result" aria-live="polite" aria-atomic="true"></div>
 </aside>
 <section class="map-panel" aria-label="Карта Ташкента">

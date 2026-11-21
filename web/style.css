@@ -45,3 +45,19 @@ button{cursor:pointer;border:0;border-radius:8px;font-weight:740}
 @media(max-width:760px){.workspace{grid-template-columns:1fr}.map-panel{grid-row:1}#map{height:clamp(320px,52vh,500px)}.intro{margin:16px 0}}
 .tile-status,.map-failure{background:#fff;color:#253d56;padding:8px 11px;border-radius:6px}
 .map-failure{display:inline-block;margin:16px}
+
+/* Keep the map in view while the route panel scrolls independently. */
+@media (min-width:761px) {
+  .bar,main{max-width:none}
+  main{padding:0}
+  .workspace{grid-template-columns:minmax(340px, 400px) minmax(0,1fr);gap:0;align-items:stretch;height:calc(100dvh - 66px)}
+  .panel,.map-panel{border-radius:0;box-shadow:none}
+  .panel{overflow-y:auto;border-width:0 1px 0 0;padding:22px}
+  .map-panel{display:flex;flex-direction:column;border:0;min-height:0}
+  #map{height:auto;flex:1}
+}
+.panel h1{font-size:1.6rem;letter-spacing:-.045em}
+#choices:not(:empty){display:grid;gap:7px;margin-top:16px}
+#choices button{display:grid;gap:3px;text-align:left;padding:10px 12px;background:#f5f3fb;color:#282145;border:1px solid #e1dbef}
+#choices button[aria-pressed="true"]{border-color:#204ed3;background:#edf3ff;color:#173a9a}
+#choices button span{font-size:.77rem;font-weight:500}

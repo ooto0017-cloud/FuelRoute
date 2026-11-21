@@ -11,6 +11,7 @@ const router = "https://routing.openstreetmap.de/routed-car";
 const form = document.querySelector("#plan");
 const fields = form.elements;
 const result = document.querySelector("#result");
+const choices = document.querySelector("#choices");
 const updated = document.querySelector("#updated");
 const formatter = new Intl.NumberFormat("ru", { maximumFractionDigits: 2 });
 const clock = new Intl.DateTimeFormat("ru", { timeStyle: "medium", timeZone: "Asia/Tashkent" });
@@ -27,9 +28,15 @@ function pin(point, letter, kind) {
   L.marker(point.coords, { icon, title: point.name, alt: point.name }).addTo(drawing);
 }
 
-function renderMap(start, end, route, stop) {
+function renderMap(start, end, route, stop, options = [], select) {
   if (!map) return;
   drawing.clearLayers();
+  for (const [index, option] of options.entries()) {
+    if (option.route === route) continue;
+    const path = option.route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+    L.polyline(path, { color: "#6554ad", weight: 7, opacity: 0.48 })
+      .addTo(drawing).on("click", () => select(index));
+  }
   if (route) {
     const path = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
     L.polyline(path, { color: "#fff", weight: 10, opacity: 0.94 }).addTo(drawing);
@@ -57,13 +64,13 @@ async function dataFrom(url, signal) {
 async function roadRoute(points, signal, refresh = false) {
   const key = points.map(coordinate).join(";");
   const cached = routes.get(key);
-  if (!refresh && cached && Date.now() - cached.time < 300000) return cached.route;
-  const data = await dataFrom(`${router}/route/v1/driving/${key}?overview=full&geometries=geojson`, signal);
-  const route = data.routes?.[0];
-  if (!route?.geometry?.coordinates.length) throw new Error("No route");
-  routes.set(key, { route, time: Date.now() });
+  if (!refresh && cached && Date.now() - cached.time < 300000) return cached.routes;
+  const data = await dataFrom(`${router}/route/v1/driving/${key}?overview=full&geometries=geojson&alternatives=${points.length === 2 ? 3 : 0}`, signal);
+  const options = data.routes?.filter(route => route.geometry?.coordinates.length);
+  if (!options?.length) throw new Error("No route");
+  routes.set(key, { routes: options, time: Date.now() });
   if (routes.size > 40) routes.delete(routes.keys().next().value);
-  return route;
+  return options;
 }
 
 function stations() {
@@ -80,7 +87,7 @@ async function refuel(start, end, catalog, fuel, consumption, remaining, reserve
     .sort((a, b) => Math.hypot(a.coords[0] - start.coords[0], (a.coords[1] - start.coords[1]) * 0.75)
                    - Math.hypot(b.coords[0] - start.coords[0], (b.coords[1] - start.coords[1]) * 0.75))
     .slice(0, 12);
-  if (!candidates.length) return { stop: null, incomplete: false };
+  if (!candidates.length) return { options: [], incomplete: false };
   const points = [start, ...candidates, end].map(coordinate).join(";");
   const sources = [0, ...candidates.map((_, i) => i + 1)].join(";");
   const destinations = [...candidates.map((_, i) => i + 1), candidates.length + 1].join(";");
@@ -93,14 +100,15 @@ async function refuel(start, end, catalog, fuel, consumption, remaining, reserve
       && item.first * consumption / 100000 + reserve <= remaining
       && item.second * consumption / 100000 + reserve <= capacity)
     .sort((a, b) => a.seconds - b.seconds);
-  for (const { stop } of ranked) {
-    const route = await roadRoute([start, stop, end], signal, refresh);
+  const options = [];
+  for (const { stop } of ranked.slice(0, 3)) {
+    const [route] = await roadRoute([start, stop, end], signal, refresh);
     const [first, second] = route.legs.map(leg => leg.distance * consumption / 100000);
     if (first + reserve <= remaining && second + reserve <= capacity) {
-      return { stop, route, arrival: remaining - first, amount: second + reserve - (remaining - first) };
+      options.push({ stop, route, arrival: remaining - first, amount: second + reserve - (remaining - first) });
     }
   }
-  return { stop: null, incomplete: compatible.length > candidates.length };
+  return { options, incomplete: compatible.length > candidates.length || ranked.length > 3 };
 }
 
 function summary(title, message, warning = false, stats = []) {
@@ -144,37 +152,60 @@ async function calculate(version, refresh) {
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(22000)]);
   try {
     const direct = await roadRoute([start, end], signal, refresh);
-    let route = direct;
-    let stop;
-    let title = "Топлива хватает";
-    let detail = `В точке Б останется около ${formatter.format(remaining - direct.distance * consumption / 100000)} ${unit}.`;
-    let warning = false;
-    if (direct.distance * consumption / 100000 + reserve > remaining) {
-      warning = true;
-      title = "Топлива на маршрут не хватает";
-      detail = "В каталоге не найдена достижимая АЗС с указанным видом топлива.";
+    const required = route => route.distance * consumption / 100000;
+    const directOptions = direct.map(route => ({ route, feasible: required(route) + reserve <= remaining }));
+    const recommended = directOptions.find(option => option.feasible);
+    let via = [];
+    let failure = "В проверенной части каталога не найдена достижимая АЗС с этим топливом.";
+    if (!recommended) {
       try {
         const catalog = await stations();
-        if (!catalog?.length) throw new Error("No catalog");
-        const option = await refuel(start, end, catalog, fuel, consumption, remaining, reserve, capacity, signal, refresh);
-        if (option.stop) {
-          ({ stop, route } = option);
-          title = `Заправка по пути · ${stop.name}`;
-          const amount = Math.ceil(Math.max(0, option.amount) * 100) / 100;
-          detail = `До АЗС останется ${formatter.format(option.arrival)} ${unit}. Долить от ${formatter.format(amount)} ${unit}.`;
-        } else if (option.incomplete) {
-          detail = "Среди ближайших проверенных АЗС подходящей не найдено.";
-        }
+        if (!catalog?.length || signal.aborted) throw new Error("No catalog");
+        const checked = await refuel(start, end, catalog, fuel, consumption, remaining, reserve, capacity, signal, refresh);
+        via = checked.options.sort((a, b) => a.route.duration - b.route.duration);
       } catch {
-        detail = "Не удалось проверить подходящие АЗС. Попробуйте обновить маршрут.";
+        failure = "Не удалось проверить подходящие АЗС. Попробуйте обновить маршрут.";
       }
     }
     if (version !== revision) return;
-    const stats = [["Расстояние", `${formatter.format(route.distance / 1000)} км`],
-      ["В пути", `${Math.ceil(route.duration / 60)} мин`],
-      ["Расход", `${formatter.format(route.distance * consumption / 100000)} ${unit}`]];
-    summary(title, detail, warning, stats);
-    renderMap(start, end, route, stop);
+    const preferred = recommended || via[0] || directOptions[0];
+    const options = [...directOptions, ...via];
+    const controls = options.map((option, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      const label = option.stop ? `Через ${option.stop.name}` :
+        option === directOptions[0] ? "Основной маршрут" : `Альтернатива ${index}`;
+      const heading = document.createElement("strong");
+      heading.textContent = option === preferred && (option.feasible || option.stop)
+        ? `${label} · рекомендуется` : label;
+      const details = document.createElement("span");
+      details.textContent = `${Math.ceil(option.route.duration / 60)} мин · ${formatter.format(option.route.distance / 1000)} км · ${formatter.format(required(option.route))} ${unit}${option.stop ? " · с заправкой" : option.feasible ? "" : " · топлива мало"}`;
+      button.append(heading, details);
+      button.addEventListener("click", () => select(index));
+      return button;
+    });
+
+    function select(index) {
+      const option = options[index];
+      const { route, stop, feasible } = option;
+      controls.forEach((button, i) => button.setAttribute("aria-pressed", String(i === index)));
+      const stats = [["Расстояние", `${formatter.format(route.distance / 1000)} км`],
+        ["В пути", `${Math.ceil(route.duration / 60)} мин`],
+        ["Расход", `${formatter.format(required(route))} ${unit}`]];
+      if (stop) {
+        const amount = Math.ceil(Math.max(0, option.amount) * 100) / 100;
+        summary(`Заправка по пути · ${stop.name}`,
+          `До АЗС останется ${formatter.format(option.arrival)} ${unit}. Долить от ${formatter.format(amount)} ${unit}.`, true, stats);
+      } else if (feasible) {
+        summary("Топлива хватает", `В точке Б останется около ${formatter.format(remaining - required(route))} ${unit}.`, false, stats);
+      } else {
+        summary("Топлива на маршрут не хватает", recommended || via.length
+          ? "Выберите рекомендуемый вариант из списка." : failure, true, stats);
+      }
+      renderMap(start, end, route, stop, options, select);
+    }
+    choices.replaceChildren(...controls);
+    select(options.indexOf(preferred));
     updated.textContent = `Расчёт на ${clock.format(new Date())}`;
   } catch {
     if (version !== revision) return;
@@ -190,6 +221,7 @@ function schedule(refresh = false) {
   const version = ++revision;
   updated.textContent = "Обновляем расчёт…";
   result.replaceChildren();
+  choices.replaceChildren();
   timeout = setTimeout(() => calculate(version, refresh), refresh ? 0 : 450);
 }
 
@@ -206,7 +238,8 @@ function updateUnits() {
 updateUnits();
 
 if (window.L) {
-  map = L.map("map", { scrollWheelZoom: false, minZoom: 10 }).setView([41.31, 69.26], 12);
+  map = L.map("map", { scrollWheelZoom: true, zoomControl: false, minZoom: 10 }).setView([41.31, 69.26], 12);
+  L.control.zoom({ position: "topright" }).addTo(map);
   const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://routing.openstreetmap.de/">OSRM</a>',
   }).addTo(map);
