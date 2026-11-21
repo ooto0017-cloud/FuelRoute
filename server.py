@@ -25,7 +25,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"points": POINTS, "roads": ROADS, "stations": STATIONS})
             return
         assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                  "/style.css": ("style.css", "text/css")}
+                  "/style.css": ("style.css", "text/css"), "/stations.json": ("stations.json", "application/json")}
         if self.path not in assets:
             self.send_json({"error": "Страница не найдена."}, 404)
             return

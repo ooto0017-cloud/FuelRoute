@@ -1,154 +1,256 @@
+const places = {
+  chilonzor: { name: "Метро «Чиланзар»", coords: [41.2758, 69.2034] },
+  national: { name: "Национальный парк", coords: [41.3022, 69.2369] },
+  friendship: { name: "Дружба народов", coords: [41.3111, 69.2415] },
+  amir: { name: "Сквер Амира Темура", coords: [41.3112, 69.2797] },
+  station: { name: "Северный вокзал", coords: [41.2919, 69.2876] },
+  chorsu: { name: "Базар Чорсу", coords: [41.3266, 69.2358] },
+  minor: { name: "Мечеть Минор", coords: [41.3373, 69.2785] },
+};
+const router = "https://routing.openstreetmap.de/routed-car";
 const form = document.querySelector("#plan");
 const fields = form.elements;
-const button = form.querySelector("[type=submit]");
-const swap = document.querySelector("#swap");
 const result = document.querySelector("#result");
-const canvas = document.querySelector("#map");
-const ctx = canvas.getContext("2d");
-const number = new Intl.NumberFormat("ru", { maximumFractionDigits: 2 });
-let network;
+const updated = document.querySelector("#updated");
+const formatter = new Intl.NumberFormat("ru", { maximumFractionDigits: 2 });
+const clock = new Intl.DateTimeFormat("ru", { timeStyle: "medium", timeZone: "Asia/Tashkent" });
+let map;
+let drawing;
+let timeout;
+let revision = 0;
+let request;
+let stationCatalog;
+const routes = new Map();
 
-function line(points, color, width) {
-  ctx.beginPath();
-  points.forEach((id, index) => {
-    const [, x, y] = network.points[id];
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineJoin = "round";
-  ctx.stroke();
+function pin(point, letter, kind) {
+  const icon = L.divIcon({ className: "", html: `<span class="pin ${kind}">${letter}</span>`, iconSize: [32, 32] });
+  L.marker(point.coords, { icon, title: point.name, alt: point.name }).addTo(drawing);
 }
 
-function draw(route = []) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.beginPath();
-  for (let x = 0; x < canvas.width; x += 32) {
-    for (let y = 0; y < canvas.height; y += 32) ctx.rect(x, y, 2, 2);
+function renderMap(start, end, route, stop) {
+  if (!map) return;
+  drawing.clearLayers();
+  if (route) {
+    const path = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+    L.polyline(path, { color: "#fff", weight: 10, opacity: 0.94 }).addTo(drawing);
+    L.polyline(path, { color: "#2459e2", weight: 5, opacity: 1 }).addTo(drawing);
   }
-  ctx.fillStyle = "#29443b";
-  ctx.fill();
-  for (const [a, b, , , delay] of network.roads) {
-    line([a, b], fields.traffic.checked && delay >= 3 ? "#bb6668" : "#526c75", 4);
+  pin(start, "А", "a");
+  pin(end, "Б", "b");
+  if (stop) {
+    L.circleMarker(stop.coords, { radius: 9, color: "#fff", weight: 3,
+      fillColor: "#c15c12", fillOpacity: 1 }).addTo(drawing);
   }
-  if (route.length) line(route, "#77e3c4", 7);
-  ctx.font = "bold 14px system-ui";
-  for (const [id, [name, x, y]] of Object.entries(network.points)) {
-    const station = network.stations[id];
-    const eligible = station?.includes(fields.fuel.value);
-    ctx.beginPath();
-    const marker = id === fields.start.value ? "А" : id === fields.end.value ? "Б" : "";
-    ctx.arc(x, y, marker ? 12 : 7, 0, Math.PI * 2);
-    ctx.fillStyle = eligible ? "#ffcc6e" : station ? "#7b8c91" : "#dce9eb";
-    ctx.fill();
-    if (marker) {
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#132b26";
-      ctx.fillText(marker, x, y + 5);
-      ctx.fillStyle = "#dce9eb";
+  map.fitBounds(drawing.getBounds(), { padding: [35, 35], maxZoom: 15, animate: false });
+}
+
+function coordinate(point) {
+  return [point.coords[1], point.coords[0]].join(",");
+}
+
+async function dataFrom(url, signal) {
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+async function roadRoute(points, signal, refresh = false) {
+  const key = points.map(coordinate).join(";");
+  const cached = routes.get(key);
+  if (!refresh && cached && Date.now() - cached.time < 300000) return cached.route;
+  const data = await dataFrom(`${router}/route/v1/driving/${key}?overview=full&geometries=geojson`, signal);
+  const route = data.routes?.[0];
+  if (!route?.geometry?.coordinates.length) throw new Error("No route");
+  routes.set(key, { route, time: Date.now() });
+  if (routes.size > 40) routes.delete(routes.keys().next().value);
+  return route;
+}
+
+function stations() {
+  if (!stationCatalog) {
+    stationCatalog = dataFrom("/stations.json", AbortSignal.timeout(8000))
+      .catch(() => { stationCatalog = undefined; return null; });
+  }
+  return stationCatalog;
+}
+
+async function refuel(start, end, catalog, fuel, consumption, remaining, reserve, capacity, signal, refresh) {
+  const compatible = catalog.filter(station => station.fuels.includes(fuel));
+  const candidates = compatible
+    .sort((a, b) => Math.hypot(a.coords[0] - start.coords[0], (a.coords[1] - start.coords[1]) * 0.75)
+                   - Math.hypot(b.coords[0] - start.coords[0], (b.coords[1] - start.coords[1]) * 0.75))
+    .slice(0, 12);
+  if (!candidates.length) return { stop: null, incomplete: false };
+  const points = [start, ...candidates, end].map(coordinate).join(";");
+  const sources = [0, ...candidates.map((_, i) => i + 1)].join(";");
+  const destinations = [...candidates.map((_, i) => i + 1), candidates.length + 1].join(";");
+  const table = await dataFrom(`${router}/table/v1/driving/${points}?sources=${sources}&destinations=${destinations}&annotations=duration,distance`, signal);
+  if (!table.distances || !table.durations) throw new Error("No table");
+  const ranked = candidates.map((stop, i) => ({
+    stop, first: table.distances[0][i], second: table.distances[i + 1].at(-1),
+    seconds: table.durations[0][i] + table.durations[i + 1].at(-1),
+  })).filter(item => item.first !== null && item.second !== null
+      && item.first * consumption / 100000 + reserve <= remaining
+      && item.second * consumption / 100000 + reserve <= capacity)
+    .sort((a, b) => a.seconds - b.seconds);
+  for (const { stop } of ranked) {
+    const route = await roadRoute([start, stop, end], signal, refresh);
+    const [first, second] = route.legs.map(leg => leg.distance * consumption / 100000);
+    if (first + reserve <= remaining && second + reserve <= capacity) {
+      return { stop, route, arrival: remaining - first, amount: second + reserve - (remaining - first) };
     }
-    const label = station ? name.split(" · ")[0] : name;
-    ctx.textAlign = x > 450 ? "right" : "left";
-    ctx.fillText(label, x > 450 ? x - 9 : x + 9, y - 12);
   }
+  return { stop: null, incomplete: compatible.length > candidates.length };
 }
 
-function reset() {
-  const unit = fields.fuel.value === "methane" ? "м³" : "л";
-  document.querySelectorAll("[data-unit]").forEach(label => { label.textContent = unit; });
-  result.textContent = "";
-  draw();
+function summary(title, message, warning = false, stats = []) {
+  result.dataset.state = warning ? "warning" : "";
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const note = document.createElement("p");
+  note.textContent = message;
+  result.replaceChildren(heading, note);
+  if (!stats.length) return;
+  const list = document.createElement("dl");
+  list.className = "stats";
+  for (const [label, value] of stats) {
+    const pair = document.createElement("div");
+    const term = document.createElement("dt");
+    const amount = document.createElement("dd");
+    term.textContent = label;
+    amount.textContent = value;
+    pair.append(term, amount);
+    list.append(pair);
+  }
+  result.append(list);
 }
 
-async function init() {
+async function calculate(version, refresh) {
+  const start = places[fields.start.value];
+  const end = places[fields.end.value];
+  const fuel = fields.fuel.value;
+  const unit = fuel === "methane" ? "м³" : "л";
+  const [consumption, remaining, reserve, capacity] = ["consumption", "remaining", "reserve", "capacity"]
+    .map(name => fields[name].valueAsNumber);
+  if (!form.checkValidity() || start === end || remaining > capacity || reserve >= capacity) {
+    updated.textContent = "Проверьте параметры";
+    summary("Уточните параметры", start === end ? "Выберите разные точки А и Б." :
+      "Заполните поля. Остаток не должен превышать ёмкость, а резерв должен быть меньше неё.", true);
+    renderMap(start, end);
+    return;
+  }
+  updated.textContent = "Расчёт маршрута…";
+  request = new AbortController();
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(22000)]);
   try {
-    const response = await fetch("/api/network");
-    if (!response.ok) throw new Error("Не удалось загрузить схему.");
-    network = await response.json();
-    for (const [id, [name]] of Object.entries(network.points)) {
-      if (id in network.stations) continue;
-      fields.start.add(new Option(name, id));
-      fields.end.add(new Option(name, id));
+    const direct = await roadRoute([start, end], signal, refresh);
+    let route = direct;
+    let stop;
+    let title = "Топлива хватает";
+    let detail = `В точке Б останется около ${formatter.format(remaining - direct.distance * consumption / 100000)} ${unit}.`;
+    let warning = false;
+    if (direct.distance * consumption / 100000 + reserve > remaining) {
+      warning = true;
+      title = "Топлива на маршрут не хватает";
+      detail = "В каталоге не найдена достижимая АЗС с указанным видом топлива.";
+      try {
+        const catalog = await stations();
+        if (!catalog?.length) throw new Error("No catalog");
+        const option = await refuel(start, end, catalog, fuel, consumption, remaining, reserve, capacity, signal, refresh);
+        if (option.stop) {
+          ({ stop, route } = option);
+          title = `Заправка по пути · ${stop.name}`;
+          const amount = Math.ceil(Math.max(0, option.amount) * 100) / 100;
+          detail = `До АЗС останется ${formatter.format(option.arrival)} ${unit}. Долить от ${formatter.format(amount)} ${unit}.`;
+        } else if (option.incomplete) {
+          detail = "Среди ближайших проверенных АЗС подходящей не найдено.";
+        }
+      } catch {
+        detail = "Не удалось проверить подходящие АЗС. Попробуйте обновить маршрут.";
+      }
     }
-    fields.end.value = "amir";
-    reset();
-    button.disabled = false;
-    swap.disabled = false;
-    form.requestSubmit();
+    if (version !== revision) return;
+    const stats = [["Расстояние", `${formatter.format(route.distance / 1000)} км`],
+      ["В пути", `${Math.ceil(route.duration / 60)} мин`],
+      ["Расход", `${formatter.format(route.distance * consumption / 100000)} ${unit}`]];
+    summary(title, detail, warning, stats);
+    renderMap(start, end, route, stop);
+    updated.textContent = `Расчёт на ${clock.format(new Date())}`;
   } catch {
-    result.textContent = "Не удалось загрузить схему.";
+    if (version !== revision) return;
+    renderMap(start, end);
+    updated.textContent = "Маршрут недоступен";
+    summary("Не удалось построить маршрут", "Проверьте подключение и нажмите «Обновить маршрут».", true);
   }
 }
 
-swap.addEventListener("click", () => {
-  [fields.start.value, fields.end.value] = [fields.end.value, fields.start.value];
-  reset();
-  form.requestSubmit();
-});
-form.addEventListener("input", () => { if (network) reset(); });
-fields.fuel.addEventListener("change", () => {
-  for (const name of ["consumption", "remaining", "reserve", "capacity"]) fields[name].value = "";
-  reset();
-});
-form.addEventListener("submit", async event => {
-  event.preventDefault();
-  const data = Object.fromEntries(new FormData(form));
-  data.traffic = fields.traffic.checked;
-  for (const name of ["consumption", "remaining", "reserve", "capacity"]) data[name] = Number(data[name]);
-  form.querySelectorAll("input, select, button").forEach(control => { control.disabled = true; });
-  try {
-    const response = await fetch("/api/plan", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-    });
-    const plan = await response.json();
-    if (!response.ok) throw new Error(plan.error);
-    const { route, status, unit } = plan;
-    const labels = {
-      enough: "Топлива хватает",
-      alternate: "Найден маршрут с меньшим расходом",
-      refuel: `Заправка по пути · ${network.points[route.station]?.[0] || ""}`,
-      unreachable: "Поездка с текущим остатком невозможна",
-    };
-    const summary = document.createElement("section");
-    summary.className = "trip-summary";
-    summary.dataset.status = status;
-    const title = document.createElement("h3");
-    title.textContent = labels[status];
-    const detail = document.createElement("p");
-    if (status === "refuel") {
-      const extraMinutes = route.minutes - plan.direct.minutes;
-      const refill = Math.ceil(route.minimumRefill * 100 - 1e-9) / 100;
-      detail.textContent = `До АЗС останется ${number.format(route.arrivalFuel)} ${unit}. Дозаправка от ${number.format(refill)} ${unit}. Объезд +${extraMinutes} мин.`;
-    } else if (status === "unreachable") {
-      detail.textContent = "В учебной сети нет доступной АЗС с этим топливом. Ниже — параметры базового маршрута.";
-    } else {
-      detail.textContent = `В точке Б останется около ${number.format(data.remaining - route.fuel)} ${unit}.`;
-    }
-    const stats = document.createElement("dl");
-    stats.className = "trip-stats";
-    for (const [label, value] of [
-      ["Длина", `${number.format(route.km)} км`],
-      ["В пути", `${route.minutes} мин`],
-      ["Расход", `${number.format(route.fuel)} ${unit}`],
-    ]) {
-      const stat = document.createElement("div");
-      const term = document.createElement("dt");
-      const amount = document.createElement("dd");
-      term.textContent = label;
-      amount.textContent = value;
-      stat.append(term, amount);
-      stats.append(stat);
-    }
-    summary.append(title, detail, stats);
-    result.replaceChildren(summary);
-    draw(status === "unreachable" ? [] : route.points);
-  } catch (error) {
-    result.textContent = error.message;
-    draw();
-  } finally {
-    form.querySelectorAll("input, select, button").forEach(control => { control.disabled = false; });
-  }
-});
+function schedule(refresh = false) {
+  clearTimeout(timeout);
+  request?.abort();
+  const version = ++revision;
+  updated.textContent = "Обновляем расчёт…";
+  result.replaceChildren();
+  timeout = setTimeout(() => calculate(version, refresh), refresh ? 0 : 450);
+}
 
-init();
+for (const [id, place] of Object.entries(places)) {
+  fields.start.add(new Option(place.name, id));
+  fields.end.add(new Option(place.name, id));
+}
+fields.end.value = "amir";
+function updateUnits() {
+  document.querySelectorAll("[data-unit]").forEach(node => {
+    node.textContent = fields.fuel.value === "methane" ? "м³" : "л";
+  });
+}
+updateUnits();
+
+if (window.L) {
+  map = L.map("map", { scrollWheelZoom: false, minZoom: 10 }).setView([41.31, 69.26], 12);
+  const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://routing.openstreetmap.de/">OSRM</a>',
+  }).addTo(map);
+  const mapElement = document.querySelector("#map");
+  const tileStatus = L.control({ position: "bottomleft" });
+  tileStatus.onAdd = () => {
+    const node = L.DomUtil.create("div", "tile-status");
+    node.textContent = "Подложка карты недоступна";
+    return node;
+  };
+  tiles.on("tileerror", () => {
+    if (!mapElement.classList.contains("tiles-unavailable")) {
+      mapElement.classList.add("tiles-unavailable");
+      tileStatus.addTo(map);
+    }
+  });
+  tiles.on("tileload", () => {
+    if (mapElement.classList.contains("tiles-unavailable")) {
+      mapElement.classList.remove("tiles-unavailable");
+      tileStatus.remove();
+    }
+  });
+  drawing = L.featureGroup().addTo(map);
+  renderMap(places[fields.start.value], places[fields.end.value]);
+} else {
+  const fallback = document.createElement("p");
+  fallback.className = "map-failure";
+  fallback.textContent = "Карта не загрузилась. Перезагрузите страницу.";
+  document.querySelector("#map").append(fallback);
+}
+
+form.addEventListener("input", event => {
+  if (event.target === fields.fuel) {
+    updateUnits();
+    for (const name of ["consumption", "remaining", "reserve", "capacity"]) fields[name].value = "";
+  }
+  schedule();
+});
+form.addEventListener("submit", event => {
+  event.preventDefault();
+  schedule(true);
+});
+document.querySelector("#swap").addEventListener("click", () => {
+  [fields.start.value, fields.end.value] = [fields.end.value, fields.start.value];
+  schedule();
+});
+schedule();

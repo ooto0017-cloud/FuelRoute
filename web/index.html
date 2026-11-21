@@ -3,38 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FuelRoute · Ташкент</title>
+<meta name="theme-color" content="#101c2b">
+<title>FuelRoute — маршруты Ташкента</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
 <link rel="stylesheet" href="/style.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
 <script src="/app.js" defer></script>
 </head>
-<body><main>
-<header class="top">
-  <a class="brand" href="/">Fuel<span>Route</span></a>
-  <span class="city">Ташкент · демоверсия</span>
-</header>
-<div class="hero"><h1>Хватит ли топлива?</h1><p>Постройте маршрут и найдите заправку, до которой сможете доехать.</p></div>
-<div class="layout">
-<section class="panel">
-<h2>Ваш маршрут</h2>
+<body>
+<header class="top"><div class="bar">
+<a class="brand" href="/"><span class="logo" aria-hidden="true">↗</span>FuelRoute</a>
+<span class="city">Ташкент, Узбекистан</span>
+</div></header>
+<main>
+<div class="intro"><h1>Маршрут и топливо</h1><p>Укажите точку назначения и узнайте, хватит ли топлива на поездку.</p></div>
+<div class="workspace">
+<aside class="panel">
+<h2>Параметры поездки</h2>
 <form id="plan">
-<label>Откуда<select name="start"></select></label>
-<button class="swap" id="swap" type="button" disabled>Поменять А и Б</button>
-<label>Куда<select name="end"></select></label>
+<div class="stops">
+<label><span class="dot a">А</span>Откуда<select name="start"></select></label>
+<button id="swap" class="swap" type="button" aria-label="Поменять точки А и Б" title="Поменять точки А и Б">⇅</button>
+<label><span class="dot b">Б</span>Куда<select name="end"></select></label>
+</div>
 <label>Топливо<select name="fuel"><option value="gasoline">Бензин</option><option value="diesel">Дизель</option><option value="methane">Метан</option><option value="propane">Пропан</option></select></label>
 <div class="fields">
-<label>Расход, <span data-unit></span>/100 км<input type="number" min="0.01" max="1000" step="any" name="consumption" value="9" required></label>
-<label>Остаток, <span data-unit></span><input type="number" min="0" max="1000" step="any" name="remaining" value="0.5" required></label>
-<label>Запас, <span data-unit></span><input type="number" min="0" max="1000" step="any" name="reserve" value="0.2" required></label>
-<label>Ёмкость, <span data-unit></span><input type="number" min="0.01" max="1000" step="any" name="capacity" value="50" required></label>
+<label>Расход, <span data-unit></span>/100 км<input type="number" min=".01" max="1000" step="any" name="consumption" value="9" required></label>
+<label>Остаток, <span data-unit></span><input type="number" min="0" max="1000" step="any" name="remaining" value="5" required></label>
+<label>Резерв, <span data-unit></span><input type="number" min="0" max="1000" step="any" name="reserve" value=".2" required></label>
+<label>Ёмкость, <span data-unit></span><input type="number" min=".01" max="1000" step="any" name="capacity" value="50" required></label>
 </div>
-<label class="check"><input name="traffic" type="checkbox" checked> Учитывать учебные пробки</label>
-<button type="submit" disabled>Рассчитать маршрут <span aria-hidden="true">↗</span></button>
+<button class="submit" type="submit">Обновить маршрут <span aria-hidden="true">↗</span></button>
 </form>
+<div id="result" aria-live="polite" aria-atomic="true"></div>
+</aside>
+<section class="map-panel" aria-label="Карта Ташкента">
+<div class="map-head"><h2>Карта Ташкента</h2><span id="updated" role="status">Загрузка карты</span></div>
+<div id="map" aria-label="Интерактивная карта маршрута"></div>
+<div class="map-foot"><div class="legend"><span><i></i> Маршрут</span><span><i></i> АЗС</span></div><span>Время без текущих пробок · наличие топлива не подтверждено</span></div>
 </section>
-<section class="panel map">
-<div class="map-head"><h2>Схема маршрута</h2><span class="muted">Учебные дороги и АЗС</span></div>
-<canvas id="map" width="640" height="380" aria-label="Схема маршрута и заправок"></canvas>
-<p class="legend">Бирюзовый — маршрут · жёлтый — подходящие АЗС · красный — учебные задержки</p>
-<div id="result" role="status" aria-live="polite"></div>
-</section>
-</div></main></body></html>
+</div>
+</main>
+</body></html>
