@@ -2,24 +2,27 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#101c2b">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <title>FuelRoute — маршруты Ташкента</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="/style.css?v=routes-2">
+<link rel="stylesheet" href="/style.css?v=mobile-1">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
-<script src="/app.js?v=routes-2" defer></script>
+<script src="/app.js?v=mobile-1" defer></script>
 </head>
 <body>
 <header class="top"><div class="bar">
 <a class="brand" href="/"><span class="logo" aria-hidden="true">↗</span>FuelRoute</a>
-<span class="city">Ташкент, Узбекистан</span>
+<span class="city">Ташкент</span>
 </div></header>
 <main>
 
 <div class="workspace">
 <aside class="panel">
 <h1>Маршрут и топливо</h1>
+<a class="map-jump" href="#map">К карте ↑</a>
 <form id="plan">
 <div class="stops">
 <label><span class="dot a">А</span>Откуда<select name="start"></select></label>
@@ -39,7 +42,7 @@
 <div id="result" aria-live="polite" aria-atomic="true"></div>
 </aside>
 <section class="map-panel" aria-label="Карта Ташкента">
-<div class="map-head"><h2>Карта Ташкента</h2><span id="updated" role="status">Загрузка карты</span></div>
+<div class="map-head"><h2>Карта Ташкента</h2><a class="map-jump" href="#plan">К маршруту ↓</a><span id="updated" role="status">Загрузка карты</span></div>
 <div id="map" aria-label="Интерактивная карта маршрута"></div>
 <div class="map-foot"><div class="legend"><span><i></i> Маршрут</span><span><i></i> АЗС</span></div><span>Время без текущих пробок · наличие топлива не подтверждено</span></div>
 </section>

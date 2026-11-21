@@ -27,11 +27,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
                   "/style.css": ("style.css", "text/css"), "/stations.json": ("stations.json", "application/json")}
+        assets.update({
+            "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+            "/sw.js": ("sw.js", "text/javascript"),
+            "/offline.html": ("offline.html", "text/html"),
+            "/icon-192.png": ("icon-192.png", "image/png"),
+            "/icon-512.png": ("icon-512.png", "image/png"),
+        })
         if path not in assets:
             self.send_json({"error": "Страница не найдена."}, 404)
             return
         filename, content_type = assets[path]
-        self.send_body((WEB / filename).read_bytes(), content_type + "; charset=utf-8")
+        if not content_type.startswith("image/"):
+            content_type += "; charset=utf-8"
+        self.send_body((WEB / filename).read_bytes(), content_type)
 
     def do_POST(self):
         if (self.route or self.path) != "/api/plan":

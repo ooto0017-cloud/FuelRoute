@@ -287,3 +287,9 @@ document.querySelector("#swap").addEventListener("click", () => {
   schedule();
 });
 schedule();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(error => {
+    console.warn("Не удалось включить автономную страницу FuelRoute.", error);
+  });
+}

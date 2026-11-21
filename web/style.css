@@ -61,3 +61,20 @@ button{cursor:pointer;border:0;border-radius:8px;font-weight:740}
 #choices button{display:grid;gap:3px;text-align:left;padding:10px 12px;background:#f5f3fb;color:#282145;border:1px solid #e1dbef}
 #choices button[aria-pressed="true"]{border-color:#204ed3;background:#edf3ff;color:#173a9a}
 #choices button span{font-size:.77rem;font-weight:500}
+
+.map-jump{display:none}
+@media(max-width:760px) {
+  .top{padding-top:env(safe-area-inset-top)}
+  .bar{height:54px}
+  main{padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+  .workspace{gap:12px}
+  .map-panel{margin-top:10px}
+  .map-jump{display:inline-flex;align-items:center;min-height:44px;color:#204ed3;font-size:.88rem;font-weight:700;text-decoration:none}
+  .panel>.map-jump{margin-bottom:-8px}
+  .map-head{gap:2px 10px}
+  .map-head #updated{width:100%}
+  .panel input,.panel select{font-size:16px;min-height:44px}
+  .submit,.swap,#choices button{min-height:44px}
+  .swap{width:44px}
+  .stops label{padding-right:51px}
+}
