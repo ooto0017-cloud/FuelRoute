@@ -21,15 +21,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_body(json.dumps(data, ensure_ascii=False).encode(), "application/json; charset=utf-8", status)
 
     def do_GET(self):
-        if self.path == "/api/network":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/network":
             self.send_json({"points": POINTS, "roads": ROADS, "stations": STATIONS})
             return
         assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
                   "/style.css": ("style.css", "text/css"), "/stations.json": ("stations.json", "application/json")}
-        if self.path not in assets:
+        if path not in assets:
             self.send_json({"error": "Страница не найдена."}, 404)
             return
-        filename, content_type = assets[self.path]
+        filename, content_type = assets[path]
         self.send_body((WEB / filename).read_bytes(), content_type + "; charset=utf-8")
 
     def do_POST(self):
