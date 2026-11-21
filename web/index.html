@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FuelRoute · Ташкент</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body><main>
+<header class="top">
+  <a class="brand" href="/">Fuel<span>Route</span></a>
+  <span class="city">Ташкент · демоверсия</span>
+</header>
+<div class="hero"><h1>Хватит ли топлива?</h1><p>Постройте маршрут и найдите заправку, до которой сможете доехать.</p></div>
+<div class="layout">
+<section class="panel">
+<h2>Ваш маршрут</h2>
+<form id="plan">
+<label>Откуда<select name="start"></select></label>
+<button class="swap" id="swap" type="button" disabled>Поменять А и Б</button>
+<label>Куда<select name="end"></select></label>
+<label>Топливо<select name="fuel"><option value="gasoline">Бензин</option><option value="diesel">Дизель</option><option value="methane">Метан</option><option value="propane">Пропан</option></select></label>
+<div class="fields">
+<label>Расход, <span data-unit></span>/100 км<input type="number" min="0.01" max="1000" step="any" name="consumption" value="9" required></label>
+<label>Остаток, <span data-unit></span><input type="number" min="0" max="1000" step="any" name="remaining" value="0.5" required></label>
+<label>Запас, <span data-unit></span><input type="number" min="0" max="1000" step="any" name="reserve" value="0.2" required></label>
+<label>Ёмкость, <span data-unit></span><input type="number" min="0.01" max="1000" step="any" name="capacity" value="50" required></label>
+</div>
+<label class="check"><input name="traffic" type="checkbox" checked> Учитывать учебные пробки</label>
+<button type="submit" disabled>Рассчитать маршрут <span aria-hidden="true">↗</span></button>
+</form>
+</section>
+<section class="panel map">
+<div class="map-head"><h2>Схема маршрута</h2><span class="muted">Учебные дороги и АЗС</span></div>
+<canvas id="map" width="640" height="380" aria-label="Схема маршрута и заправок"></canvas>
+<p class="legend">Бирюзовый — маршрут · жёлтый — подходящие АЗС · красный — учебные задержки</p>
+<div id="result" role="status" aria-live="polite"></div>
+</section>
+</div></main></body></html>

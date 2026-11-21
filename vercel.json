@@ -1,0 +1,8 @@
+{
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "web",
+  "functions": {
+    "api/*.py": { "includeFiles": "{engine,server}.py" }
+  }
+}
